@@ -253,6 +253,35 @@ void replace(char *str, char old, char new) {
   }
 }
 
+void proc_setgroups_write(pid_t child_pid, char *str) {
+  char setgroups_path[PATH_MAX];
+  int fd;
+
+  snprintf(setgroups_path, PATH_MAX, "/proc/%ld/setgroups", (long)child_pid);
+
+  fd = open(setgroups_path, O_RDWR);
+  if (fd == -1) {
+    /* We may be on a system that doesn't support
+       /proc/PID/setgroups. In that case, the file won't exist,
+       and the system won't impose the restrictions that Linux 3.19
+       added. That's fine: we don't need to do anything in order
+       to permit 'gid_map' to be updated.
+
+       However, if the error from open() was something other than
+       the ENOENT error that is expected for that case,  let the
+       user know. */
+
+    if (errno != ENOENT)
+      fail("open setgroups");
+    return;
+  }
+
+  if (write(fd, str, strlen(str)) == -1)
+    fail("write setgroups");
+
+  close(fd);
+}
+
 int run(nsroot_args *args) {
   int ret;
   char *error_msg;
@@ -278,6 +307,7 @@ int run(nsroot_args *args) {
   }
 
   if(args->gid_map != NULL) {
+    proc_setgroups_write(child_pid, "deny");
     snprintf(path, sizeof(path), "/proc/%d/gid_map", child_pid);
     if(ret < 0 || ret > sizeof(path)) {
       error_msg = "snprintf"; goto fail;
